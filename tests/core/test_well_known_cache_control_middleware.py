@@ -233,3 +233,37 @@ def test_configured_server_applies_no_cache_to_served_oauth_discovery_routes(
     # Ensure we did not create a shadow route at the wrong path.
     wrong_path = client.get("/.well-known/oauth-protected-resource")
     assert wrong_path.status_code == 404
+
+
+def test_external_oauth_metadata_advertises_canonical_google_issuer(monkeypatch):
+    """authorization_servers must match Google's OpenID issuer exactly.
+
+    Google's discovery document reports the issuer without a trailing slash.
+    Pydantic's AnyHttpUrl would otherwise re-add one, breaking the SDK's
+    RFC 8414 §3.3 exact-match check on the 401 refresh path.
+    """
+    monkeypatch.setenv("MCP_ENABLE_OAUTH21", "true")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "dummy-client")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "dummy-secret")
+    monkeypatch.setenv("WORKSPACE_MCP_BASE_URI", "http://localhost")
+    monkeypatch.setenv("WORKSPACE_MCP_PORT", "8000")
+    monkeypatch.setenv("WORKSPACE_EXTERNAL_URL", "https://workspace.example.com")
+    monkeypatch.setenv("EXTERNAL_OAUTH21_PROVIDER", "true")
+    monkeypatch.setenv("WORKSPACE_MCP_STATELESS_MODE", "true")
+
+    import core.server as core_server
+    from auth.oauth_config import reload_oauth_config
+
+    reload_oauth_config()
+    core_server = importlib.reload(core_server)
+    core_server.set_transport_mode("streamable-http")
+    core_server.configure_server_for_http()
+
+    app = core_server.server.http_app(transport="streamable-http", path="/mcp")
+    client = TestClient(app)
+
+    protected_resource = client.get("/.well-known/oauth-protected-resource")
+    assert protected_resource.status_code == 200
+    assert protected_resource.json()["authorization_servers"] == [
+        "https://accounts.google.com"
+    ]
