@@ -14,6 +14,7 @@ import os
 import time
 from typing import Optional
 
+from starlette.responses import JSONResponse
 from starlette.routing import Route
 from fastmcp.server.auth.providers.google import GoogleProvider
 from fastmcp.server.auth import AccessToken
@@ -23,8 +24,78 @@ from auth.oauth_types import WorkspaceAccessToken
 
 logger = logging.getLogger(__name__)
 
-# Google's OAuth 2.0 Authorization Server
+# Google's OAuth 2.0 Authorization Server.
+#
+# This is the canonical issuer as returned by Google's OpenID discovery
+# document (https://accounts.google.com/.well-known/openid-configuration),
+# which reports `"issuer": "https://accounts.google.com"` WITHOUT a trailing
+# slash. RFC 8414 §3.3 requires clients to compare the issuer advertised in our
+# protected-resource metadata against that value using an exact string match.
 GOOGLE_ISSUER_URL = "https://accounts.google.com"
+
+
+def _canonicalize_authorization_servers(route: Route) -> Route:
+    """Rebuild a protected-resource metadata route to emit the canonical issuer.
+
+    The MCP SDK models ``authorization_servers`` as ``list[AnyHttpUrl]``, and
+    Pydantic normalizes a bare-host URL by appending a trailing slash. As a
+    result the metadata advertises ``https://accounts.google.com/`` even though
+    we pass the slash-less canonical form. Google's OpenID discovery reports the
+    issuer without the slash, so the SDK's RFC 8414 §3.3 exact-match check on the
+    401 token-refresh path fails and clients are forced to re-authorize.
+
+    The SDK route serves the metadata straight from a frozen Pydantic model, so
+    we cannot mutate it in place. Instead we read the served payload once from
+    the SDK's handler, rewrite the ``authorization_servers`` entries back to
+    their canonical (slash-less) form, and serve that fixed payload from an
+    equivalent CORS-wrapped handler.
+    """
+    from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
+    from mcp.server.auth.routes import cors_middleware
+
+    metadata_handler = _find_metadata_handler(route.endpoint)
+    if not isinstance(metadata_handler, ProtectedResourceMetadataHandler):
+        # Unexpected route shape; leave it untouched rather than break discovery.
+        logger.warning(
+            "ExternalOAuthProvider: could not canonicalize issuer for route %s",
+            route.path,
+        )
+        return route
+
+    payload = metadata_handler.metadata.model_dump(mode="json", exclude_none=True)
+    servers = payload.get("authorization_servers")
+    if isinstance(servers, list):
+        payload["authorization_servers"] = [
+            GOOGLE_ISSUER_URL if s == GOOGLE_ISSUER_URL + "/" else s for s in servers
+        ]
+
+    async def handle(_request):
+        return JSONResponse(
+            payload, headers={"Cache-Control": "public, max-age=3600"}
+        )
+
+    return Route(
+        route.path,
+        endpoint=cors_middleware(handle, ["GET", "OPTIONS"]),
+        methods=route.methods,
+    )
+
+
+def _find_metadata_handler(endpoint):
+    """Reach the ProtectedResourceMetadataHandler behind the SDK route.
+
+    The SDK builds ``CORSMiddleware(app=request_response(handler.handle))``;
+    ``handler.handle`` is a bound method captured in the request_response
+    closure, so we walk the closure cells to recover its ``__self__``.
+    """
+    from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
+
+    app = getattr(endpoint, "app", None)
+    for cell in getattr(app, "__closure__", None) or ():
+        candidate = getattr(cell.cell_contents, "__self__", None)
+        if isinstance(candidate, ProtectedResourceMetadataHandler):
+            return candidate
+    return None
 
 # Configurable session time in seconds (default: 1 hour, max: 24 hours)
 _DEFAULT_SESSION_TIME = 3600
@@ -181,6 +252,14 @@ class ExternalOAuthProvider(GoogleProvider):
             resource_name="Google Workspace MCP",
             resource_documentation=None,
         )
+
+        # Rewrite the advertised authorization_servers back to the canonical
+        # slash-less issuer (Pydantic's AnyHttpUrl re-adds the trailing slash),
+        # so the SDK's RFC 8414 §3.3 exact-match check on the 401 refresh path
+        # succeeds instead of forcing a re-authorization.
+        protected_routes = [
+            _canonicalize_authorization_servers(route) for route in protected_routes
+        ]
 
         logger.info(
             f"ExternalOAuthProvider: Created protected resource routes pointing to {GOOGLE_ISSUER_URL}"
