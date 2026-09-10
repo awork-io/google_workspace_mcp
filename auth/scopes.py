@@ -110,6 +110,15 @@ SCOPE_HIERARCHY = {
 }
 
 
+def _minimize_scopes(scopes):
+    """Remove scopes that are already covered by a broader requested scope."""
+    minimized = set(scopes)
+    for broad_scope, covered_scopes in SCOPE_HIERARCHY.items():
+        if broad_scope in minimized:
+            minimized.difference_update(covered_scopes)
+    return sorted(minimized)
+
+
 def has_required_scopes(available_scopes, required_scopes):
     """
     Check if available scopes satisfy all required scopes, accounting for
@@ -314,7 +323,7 @@ def get_scopes_for_tools(enabled_tools=None):
                 "Generated scopes from granular permissions: %d unique scopes",
                 len(set(scopes)),
             )
-            return list(set(scopes))
+            return _minimize_scopes(scopes)
     except ImportError:
         pass
 
@@ -337,8 +346,8 @@ def get_scopes_for_tools(enabled_tools=None):
     logger.debug(
         f"Generated {mode_str} scopes for tools {list(enabled_tools)}: {len(set(scopes))} unique scopes"
     )
-    # Return unique scopes
-    return list(set(scopes))
+    # Return only scopes that are not covered by a broader requested scope.
+    return _minimize_scopes(scopes)
 
 
 # Combined scopes for all supported Google Workspace operations (backwards compatibility)

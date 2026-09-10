@@ -20,19 +20,21 @@ from auth.scopes import (
     DRIVE_FILE_SCOPE,
     DRIVE_READONLY_SCOPE,
     DRIVE_SCOPE,
+    DOCS_WRITE_SCOPE,
     GMAIL_COMPOSE_SCOPE,
     GMAIL_LABELS_SCOPE,
     GMAIL_MODIFY_SCOPE,
     GMAIL_READONLY_SCOPE,
     GMAIL_SEND_SCOPE,
     GMAIL_SETTINGS_BASIC_SCOPE,
+    SLIDES_SCOPE,
     SHEETS_READONLY_SCOPE,
     SHEETS_WRITE_SCOPE,
     get_scopes_for_tools,
     has_required_scopes,
     set_read_only,
 )
-from auth.permissions import get_scopes_for_permission, set_permissions
+from auth.permissions import set_permissions
 import auth.permissions as permissions_module
 
 
@@ -211,13 +213,11 @@ class TestGranularPermissionsScopes:
         set_read_only(False)
         permissions_module._PERMISSIONS = None
 
-    def test_permissions_mode_returns_base_plus_permission_scopes(self):
+    def test_permissions_mode_returns_canonical_permission_scopes(self):
         set_permissions({"gmail": "send", "drive": "readonly"})
         scopes = get_scopes_for_tools(["calendar"])  # ignored in permissions mode
 
-        expected = set(BASE_SCOPES)
-        expected.update(get_scopes_for_permission("gmail", "send"))
-        expected.update(get_scopes_for_permission("drive", "readonly"))
+        expected = {*BASE_SCOPES, GMAIL_MODIFY_SCOPE, DRIVE_READONLY_SCOPE}
         assert set(scopes) == expected
 
     def test_permissions_mode_overrides_read_only_and_full_maps(self):
@@ -229,3 +229,27 @@ class TestGranularPermissionsScopes:
         with_permissions = get_scopes_for_tools(["drive"])
         assert GMAIL_READONLY_SCOPE in with_permissions
         assert DRIVE_READONLY_SCOPE not in with_permissions
+
+    def test_awork_agent_permissions_return_only_canonical_scopes(self):
+        set_permissions(
+            {
+                "gmail": "send",
+                "drive": "full",
+                "calendar": "full",
+                "docs": "full",
+                "sheets": "full",
+                "slides": "full",
+            }
+        )
+
+        scopes = get_scopes_for_tools()
+
+        assert set(scopes) == {
+            *BASE_SCOPES,
+            CALENDAR_SCOPE,
+            DOCS_WRITE_SCOPE,
+            DRIVE_SCOPE,
+            GMAIL_MODIFY_SCOPE,
+            SHEETS_WRITE_SCOPE,
+            SLIDES_SCOPE,
+        }
