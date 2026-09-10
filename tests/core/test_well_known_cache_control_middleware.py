@@ -262,8 +262,12 @@ def test_external_oauth_metadata_advertises_canonical_google_issuer(monkeypatch)
     app = core_server.server.http_app(transport="streamable-http", path="/mcp")
     client = TestClient(app)
 
-    protected_resource = client.get("/.well-known/oauth-protected-resource")
+    protected_resource = client.get("/.well-known/oauth-protected-resource/mcp")
     assert protected_resource.status_code == 200
+    assert protected_resource.json()["resource"] == "https://workspace.example.com/mcp"
     assert protected_resource.json()["authorization_servers"] == [
         "https://accounts.google.com"
     ]
+
+    wrong_path = client.get("/.well-known/oauth-protected-resource")
+    assert wrong_path.status_code == 404

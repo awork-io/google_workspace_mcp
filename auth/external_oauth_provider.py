@@ -243,10 +243,17 @@ class ExternalOAuthProvider(GoogleProvider):
             )
             return []
 
+        # FastMCP advertises metadata for the mounted MCP resource path in its
+        # WWW-Authenticate challenge. Register metadata for that same resource.
+        resource_url = self.resource_server_url.rstrip("/")
+        mcp_path = kwargs.get("mcp_path")
+        if mcp_path:
+            resource_url = f"{resource_url}/{str(mcp_path).lstrip('/')}"
+
         # Create protected resource routes that point to Google as the authorization server
         # Pass strings directly - Pydantic validates them during model construction
         protected_routes = create_protected_resource_routes(
-            resource_url=self.resource_server_url,
+            resource_url=resource_url,
             authorization_servers=[GOOGLE_ISSUER_URL],
             scopes_supported=self.required_scopes,
             resource_name="Google Workspace MCP",
