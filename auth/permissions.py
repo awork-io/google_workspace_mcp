@@ -262,6 +262,24 @@ def get_allowed_scopes_set() -> Optional[set]:
     return set(get_all_permission_scopes())
 
 
+def has_allowed_tool_scopes(required_scopes) -> bool:
+    """Check tool scopes against the configured permission profile.
+
+    The drive.file scope permits Drive API reads only for files available to
+    the app. Treat it as sufficient for read tools while retaining that file
+    access boundary.
+    """
+    allowed_scopes = get_allowed_scopes_set()
+    if allowed_scopes is None:
+        return True
+
+    return all(
+        scope in allowed_scopes
+        or (scope == DRIVE_READONLY_SCOPE and DRIVE_FILE_SCOPE in allowed_scopes)
+        for scope in required_scopes
+    )
+
+
 def get_valid_levels(service: str) -> List[str]:
     """Get valid permission level names for a service."""
     levels = SERVICE_PERMISSION_LEVELS.get(service)

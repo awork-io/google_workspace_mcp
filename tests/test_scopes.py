@@ -174,6 +174,9 @@ class TestHasRequiredScopes:
     def test_drive_covers_file(self):
         assert has_required_scopes([DRIVE_SCOPE], [DRIVE_FILE_SCOPE])
 
+    def test_drive_file_allows_reads_for_app_accessible_files(self):
+        assert has_required_scopes([DRIVE_FILE_SCOPE], [DRIVE_READONLY_SCOPE])
+
     def test_drive_readonly_does_not_cover_full(self):
         """Narrower scope should not satisfy broader scope."""
         assert not has_required_scopes([DRIVE_READONLY_SCOPE], [DRIVE_SCOPE])

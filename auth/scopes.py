@@ -138,6 +138,11 @@ def has_required_scopes(available_scopes, required_scopes):
     for broad_scope, covered in SCOPE_HIERARCHY.items():
         if broad_scope in available:
             expanded.update(covered)
+    # drive.file permits Drive API reads for files created by or explicitly
+    # opened with the app, but it must not minimize a requested drive.readonly
+    # scope because it does not grant unrestricted Drive reads.
+    if DRIVE_FILE_SCOPE in available:
+        expanded.add(DRIVE_READONLY_SCOPE)
     return all(scope in expanded for scope in required)
 
 

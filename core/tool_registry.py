@@ -9,7 +9,7 @@ import logging
 from typing import Set, Optional, Callable
 
 from auth.oauth_config import is_oauth21_enabled
-from auth.permissions import is_permissions_mode, get_allowed_scopes_set
+from auth.permissions import has_allowed_tool_scopes, is_permissions_mode
 from auth.scopes import is_read_only_mode, get_all_read_only_scopes
 
 logger = logging.getLogger(__name__)
@@ -160,8 +160,6 @@ def filter_server_tools(server):
     # purpose (e.g. gmail.modify in the hierarchy covers gmail.send, but the
     # "organize" permission level intentionally excludes gmail.send).
     if permissions_mode:
-        perm_allowed = get_allowed_scopes_set() or set()
-
         for tool_name, tool_obj in tool_components.items():
             if tool_name in tools_to_remove:
                 continue
@@ -172,7 +170,7 @@ def filter_server_tools(server):
 
             required_scopes = getattr(func_to_check, "_required_google_scopes", [])
             if required_scopes:
-                if not all(scope in perm_allowed for scope in required_scopes):
+                if not has_allowed_tool_scopes(required_scopes):
                     logger.info(
                         "Permissions mode: Disabling tool '%s' (requires: %s)",
                         tool_name,

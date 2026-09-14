@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from auth.permissions import (
     get_scopes_for_permission,
+    has_allowed_tool_scopes,
     is_action_denied,
     parse_permissions_arg,
     set_permissions,
@@ -172,6 +173,23 @@ class TestGetScopesForPermission:
         scopes = get_scopes_for_permission("tasks", "full")
         assert TASKS_SCOPE in scopes
         assert TASKS_READONLY_SCOPE in scopes
+
+
+class TestHasAllowedToolScopes:
+    def test_drive_file_allows_limited_drive_reads(self):
+        set_permissions({"drive": "file"})
+
+        assert has_allowed_tool_scopes([DRIVE_READONLY_SCOPE]) is True
+
+    def test_drive_file_does_not_allow_broad_drive_tools(self):
+        set_permissions({"drive": "file"})
+
+        assert has_allowed_tool_scopes([DRIVE_SCOPE]) is False
+
+    def test_gmail_modify_does_not_enable_send_outside_send_level(self):
+        set_permissions({"gmail": "organize"})
+
+        assert has_allowed_tool_scopes([GMAIL_SEND_SCOPE]) is False
 
 
 @pytest.fixture(autouse=True)
