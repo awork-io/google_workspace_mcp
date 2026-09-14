@@ -253,3 +253,30 @@ class TestGranularPermissionsScopes:
             SHEETS_WRITE_SCOPE,
             SLIDES_SCOPE,
         }
+
+    def test_awork_least_privilege_permissions_exclude_restricted_scopes(self):
+        set_permissions(
+            {
+                "gmail": "send-only",
+                "drive": "file",
+                "calendar": "full",
+                "docs": "file",
+                "sheets": "file",
+                "slides": "file",
+            }
+        )
+
+        scopes = set(get_scopes_for_tools())
+
+        assert scopes == {
+            *BASE_SCOPES,
+            CALENDAR_SCOPE,
+            DOCS_WRITE_SCOPE,
+            DRIVE_FILE_SCOPE,
+            GMAIL_SEND_SCOPE,
+            SHEETS_WRITE_SCOPE,
+            SLIDES_SCOPE,
+        }
+        assert GMAIL_MODIFY_SCOPE not in scopes
+        assert DRIVE_SCOPE not in scopes
+        assert DRIVE_READONLY_SCOPE not in scopes
