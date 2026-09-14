@@ -2136,7 +2136,7 @@ async def get_gmail_attachment_content(
     ),
 )
 @handle_http_errors("send_gmail_message", service_type="gmail")
-@require_google_service("gmail", ["gmail_read", GMAIL_SEND_SCOPE])
+@require_google_service("gmail", GMAIL_SEND_SCOPE)
 async def send_gmail_message(
     service,
     user_google_email: str,

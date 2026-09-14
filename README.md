@@ -261,7 +261,7 @@ uv run main.py --transport streamable-http --tools gmail drive calendar
 | `WORKSPACE_MCP_TOOLS` | | Comma-separated services, e.g. `gmail,drive,calendar`; empty means all services |
 | `WORKSPACE_MCP_TOOL_TIER` | | `core`, `extended`, or `complete`; empty means all tools |
 | `WORKSPACE_MCP_READ_ONLY` | | `true`, `1`, or `yes` to request read-only scopes and filter write tools |
-| `WORKSPACE_MCP_PERMISSIONS` | | Space-separated `service:level` entries, e.g. `gmail:send drive:readonly`; mutually exclusive with tools and read-only |
+| `WORKSPACE_MCP_PERMISSIONS` | | Space-separated `service:level` entries, e.g. `gmail:send-only drive:file`; mutually exclusive with tools and read-only |
 | **🔑 OAuth 2.1 & Multi-User** | | |
 | `MCP_ENABLE_OAUTH21` | | `true` to enable OAuth 2.1 multi-user support. Required for remote or shared HTTP endpoints (`--transport streamable-http`); optional for local-only legacy HTTP, which binds to `127.0.0.1` by default. |
 | `EXTERNAL_OAUTH21_PROVIDER` | | `true` for external OAuth flow with bearer tokens |
@@ -532,11 +532,13 @@ Read-only mode provides secure, restricted access by:
 uv run main.py --permissions gmail:organize drive:readonly
 
 # Combine permissions with tier filtering
-uv run main.py --permissions gmail:send drive:full --tool-tier core
+uv run main.py --permissions gmail:send-only drive:file --tool-tier core
 ```
 Granular permissions mode provides service-by-service scope control:
 - Format: `service:level` (one entry per service)
 - Gmail levels: `readonly`, `organize`, `drafts`, `send`, `full` (cumulative)
+- Gmail profile `send-only` requests only `gmail.send`
+- Drive, Docs, Sheets, and Slides profile `file` uses `drive.file` and excludes broad Drive scopes
 - Tasks levels: `readonly`, `manage`, `full` (cumulative; `manage` allows create/update/move but denies `delete` and `clear_completed`)
 - Other services currently support: `readonly`, `full`
 - `--permissions` and `--read-only` are mutually exclusive

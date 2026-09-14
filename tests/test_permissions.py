@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from auth.permissions import (
     get_scopes_for_permission,
+    has_allowed_tool_scopes,
     is_action_denied,
     parse_permissions_arg,
     set_permissions,
@@ -24,6 +25,7 @@ from auth.scopes import (
     GMAIL_LABELS_SCOPE,
     GMAIL_MODIFY_SCOPE,
     GMAIL_COMPOSE_SCOPE,
+    GMAIL_SEND_SCOPE,
     DRIVE_READONLY_SCOPE,
     DRIVE_SCOPE,
     TASKS_READONLY_SCOPE,
@@ -77,6 +79,25 @@ class TestParsePermissionsArg:
         result = parse_permissions_arg(["tasks:manage"])
         assert result == {"tasks": "manage"}
 
+    def test_exact_profiles_are_valid_levels(self):
+        result = parse_permissions_arg(
+            [
+                "gmail:send-only",
+                "drive:file",
+                "docs:file",
+                "sheets:file",
+                "slides:file",
+            ]
+        )
+
+        assert result == {
+            "gmail": "send-only",
+            "drive": "file",
+            "docs": "file",
+            "sheets": "file",
+            "slides": "file",
+        }
+
 
 class TestGetScopesForPermission:
     """Tests for get_scopes_for_permission() cumulative scope expansion."""
@@ -109,6 +130,21 @@ class TestGetScopesForPermission:
         assert DRIVE_READONLY_SCOPE in scopes
         assert DRIVE_SCOPE in scopes
 
+    def test_gmail_send_only_excludes_restricted_scopes(self):
+        scopes = get_scopes_for_permission("gmail", "send-only")
+
+        assert scopes == [GMAIL_SEND_SCOPE]
+        assert GMAIL_MODIFY_SCOPE not in scopes
+        assert GMAIL_READONLY_SCOPE not in scopes
+
+    @pytest.mark.parametrize("service", ["drive", "docs", "sheets", "slides"])
+    def test_file_profile_uses_drive_file_without_broad_drive_scopes(self, service):
+        scopes = get_scopes_for_permission(service, "file")
+
+        assert DRIVE_FILE_SCOPE in scopes
+        assert DRIVE_SCOPE not in scopes
+        assert DRIVE_READONLY_SCOPE not in scopes
+
     def test_unknown_service_raises(self):
         with pytest.raises(ValueError, match="Unknown service"):
             get_scopes_for_permission("nonexistent", "readonly")
@@ -137,6 +173,23 @@ class TestGetScopesForPermission:
         scopes = get_scopes_for_permission("tasks", "full")
         assert TASKS_SCOPE in scopes
         assert TASKS_READONLY_SCOPE in scopes
+
+
+class TestHasAllowedToolScopes:
+    def test_drive_file_allows_limited_drive_reads(self):
+        set_permissions({"drive": "file"})
+
+        assert has_allowed_tool_scopes([DRIVE_READONLY_SCOPE]) is True
+
+    def test_drive_file_does_not_allow_broad_drive_tools(self):
+        set_permissions({"drive": "file"})
+
+        assert has_allowed_tool_scopes([DRIVE_SCOPE]) is False
+
+    def test_gmail_modify_does_not_enable_send_outside_send_level(self):
+        set_permissions({"gmail": "organize"})
+
+        assert has_allowed_tool_scopes([GMAIL_SEND_SCOPE]) is False
 
 
 @pytest.fixture(autouse=True)

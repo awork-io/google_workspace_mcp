@@ -1,16 +1,17 @@
 """
 Granular per-service permission levels.
 
-Each service has named permission levels (cumulative), mapping to a list of
-OAuth scopes. The levels for a service are ordered from least to most
-permissive — requesting level N implicitly includes all scopes from levels < N.
+Each service has named permission levels that map to OAuth scopes. Most levels
+are cumulative. A small set of least-privilege profiles is exact because those
+scope combinations do not fit a linear permission hierarchy.
 
 Usage:
     --permissions gmail:organize drive:readonly
 
-Gmail levels: readonly, organize, drafts, send, full
+Gmail levels: readonly, organize, drafts, send, full; exact profile: send-only
 Tasks levels: readonly, manage, full
-Other services: readonly, full (extensible by adding entries to SERVICE_PERMISSION_LEVELS)
+Drive, Docs, Sheets, and Slides also provide an exact file profile that uses
+Google's drive.file scope instead of broad Drive access.
 """
 
 import logging
@@ -133,6 +134,26 @@ SERVICE_PERMISSION_LEVELS: Dict[str, List[Tuple[str, List[str]]]] = {
     ],
 }
 
+# Exact profiles are non-cumulative. They support least-privilege combinations
+# that branch from the ordered levels above.
+SERVICE_PERMISSION_PROFILES: Dict[str, Dict[str, List[str]]] = {
+    "gmail": {
+        "send-only": [GMAIL_SEND_SCOPE],
+    },
+    "drive": {
+        "file": [DRIVE_FILE_SCOPE],
+    },
+    "docs": {
+        "file": [DOCS_READONLY_SCOPE, DOCS_WRITE_SCOPE, DRIVE_FILE_SCOPE],
+    },
+    "sheets": {
+        "file": [SHEETS_READONLY_SCOPE, SHEETS_WRITE_SCOPE, DRIVE_FILE_SCOPE],
+    },
+    "slides": {
+        "file": [SLIDES_READONLY_SCOPE, SLIDES_SCOPE, DRIVE_FILE_SCOPE],
+    },
+}
+
 # Actions denied at specific permission levels.
 # Maps service -> level -> frozenset of denied action names.
 # Levels not listed here (or services without entries) deny nothing.
@@ -193,6 +214,10 @@ def get_scopes_for_permission(service: str, level: str) -> List[str]:
     if levels is None:
         raise ValueError(f"Unknown service: '{service}'")
 
+    exact_scopes = SERVICE_PERMISSION_PROFILES.get(service, {}).get(level)
+    if exact_scopes is not None:
+        return sorted(set(exact_scopes))
+
     cumulative: List[str] = []
     found = False
     for level_name, level_scopes in levels:
@@ -237,12 +262,32 @@ def get_allowed_scopes_set() -> Optional[set]:
     return set(get_all_permission_scopes())
 
 
+def has_allowed_tool_scopes(required_scopes) -> bool:
+    """Check tool scopes against the configured permission profile.
+
+    The drive.file scope permits Drive API reads only for files available to
+    the app. Treat it as sufficient for read tools while retaining that file
+    access boundary.
+    """
+    allowed_scopes = get_allowed_scopes_set()
+    if allowed_scopes is None:
+        return True
+
+    return all(
+        scope in allowed_scopes
+        or (scope == DRIVE_READONLY_SCOPE and DRIVE_FILE_SCOPE in allowed_scopes)
+        for scope in required_scopes
+    )
+
+
 def get_valid_levels(service: str) -> List[str]:
     """Get valid permission level names for a service."""
     levels = SERVICE_PERMISSION_LEVELS.get(service)
     if levels is None:
         return []
-    return [name for name, _ in levels]
+    ordered_levels = [name for name, _ in levels]
+    exact_profiles = list(SERVICE_PERMISSION_PROFILES.get(service, {}))
+    return ordered_levels + exact_profiles
 
 
 def parse_permissions_arg(permissions_list: List[str]) -> Dict[str, str]:
