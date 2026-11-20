@@ -14,6 +14,7 @@ import os
 import time
 from typing import Optional
 
+import httpx
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from fastmcp.server.auth.providers.google import GoogleProvider
@@ -21,6 +22,7 @@ from fastmcp.server.auth import AccessToken
 from google.oauth2.credentials import Credentials
 
 from auth.oauth_types import WorkspaceAccessToken
+from auth.scopes import USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +72,7 @@ def _canonicalize_authorization_servers(route: Route) -> Route:
         ]
 
     async def handle(_request):
-        return JSONResponse(
-            payload, headers={"Cache-Control": "public, max-age=3600"}
-        )
+        return JSONResponse(payload, headers={"Cache-Control": "public, max-age=3600"})
 
     return Route(
         route.path,
@@ -96,6 +96,7 @@ def _find_metadata_handler(endpoint):
         if isinstance(candidate, ProtectedResourceMetadataHandler):
             return candidate
     return None
+
 
 # Configurable session time in seconds (default: 1 hour, max: 24 hours)
 _DEFAULT_SESSION_TIME = 3600
@@ -133,8 +134,8 @@ class ExternalOAuthProvider(GoogleProvider):
     """
     Extended GoogleProvider that supports validating external Google OAuth access tokens.
 
-    This provider handles ya29.* access tokens by calling Google's userinfo API,
-    while maintaining compatibility with standard JWT ID tokens.
+    This provider validates ya29.* access tokens with Google and delegates JWT
+    validation to the parent provider.
 
     Unlike the standard GoogleProvider, this acts as a Resource Server only:
     - Does NOT create /authorize, /token, /register endpoints
@@ -147,10 +148,12 @@ class ExternalOAuthProvider(GoogleProvider):
         client_id: str,
         client_secret: Optional[str] = None,
         resource_server_url: Optional[str] = None,
+        selectable_scopes: list[str] | None = None,
         **kwargs,
     ):
         """Initialize and store client credentials for token validation."""
         self._resource_server_url = resource_server_url
+        self.selectable_scopes = selectable_scopes
         super().__init__(client_id=client_id, client_secret=client_secret, **kwargs)
         # Store credentials as they're not exposed by parent class
         self._client_id = client_id
@@ -162,8 +165,8 @@ class ExternalOAuthProvider(GoogleProvider):
         """
         Verify a token - supports both JWT ID tokens and ya29.* access tokens.
 
-        For ya29.* access tokens (issued externally), validates by calling
-        Google's userinfo API. For JWT tokens, delegates to parent class.
+        Selectable access checks the token's actual grant with Google. The
+        fixed-scope mode verifies identity through Google's userinfo API.
 
         Args:
             token: Token string to verify (JWT or ya29.* access token)
@@ -171,8 +174,10 @@ class ExternalOAuthProvider(GoogleProvider):
         Returns:
             AccessToken object if valid, None otherwise
         """
-        # For ya29.* access tokens, validate using Google's userinfo API
         if token.startswith("ya29."):
+            if self.selectable_scopes is not None:
+                return await self._verify_google_grant(token)
+
             logger.debug("Validating external Google OAuth access token")
 
             try:
@@ -221,6 +226,52 @@ class ExternalOAuthProvider(GoogleProvider):
         # For JWT tokens, use parent class implementation
         return await super().verify_token(token)
 
+    async def _verify_google_grant(self, token: str) -> WorkspaceAccessToken | None:
+        """Read the identity, expiry and actual scopes of an external Google grant."""
+        try:
+            async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+                response = await client.post(
+                    "https://oauth2.googleapis.com/tokeninfo",
+                    data={"access_token": token},
+                )
+                if response.status_code != 200:
+                    return None
+                grant = response.json()
+
+            email = grant.get("email")
+            subject = grant.get("sub")
+            scope = grant.get("scope")
+            expires_at = int(grant.get("exp", 0))
+            if (
+                not isinstance(email, str)
+                or not email
+                or not isinstance(subject, str)
+                or not subject
+                or expires_at <= time.time()
+                or grant.get("email_verified") not in (True, "true")
+                or not isinstance(scope, str)
+            ):
+                return None
+
+            # Google accepts both shorthand and canonical identity scopes.
+            aliases = {"email": USERINFO_EMAIL_SCOPE, "profile": USERINFO_PROFILE_SCOPE}
+            scopes = [aliases.get(value, value) for value in scope.split()]
+            if not set(self.required_scopes).issubset(scopes):
+                return None
+
+            return WorkspaceAccessToken(
+                token=token,
+                scopes=scopes,
+                expires_at=expires_at,
+                claims={"email": email, "sub": subject},
+                client_id=self._client_id,
+                email=email,
+                sub=subject,
+            )
+        except (httpx.HTTPError, AttributeError, ValueError, TypeError):
+            logger.warning("Google token verification failed")
+            return None
+
     def get_routes(self, **kwargs) -> list[Route]:
         """
         Get OAuth routes for external provider mode.
@@ -255,7 +306,11 @@ class ExternalOAuthProvider(GoogleProvider):
         protected_routes = create_protected_resource_routes(
             resource_url=resource_url,
             authorization_servers=[GOOGLE_ISSUER_URL],
-            scopes_supported=self.required_scopes,
+            scopes_supported=(
+                self.required_scopes
+                if self.selectable_scopes is None
+                else self.selectable_scopes
+            ),
             resource_name="Google Workspace MCP",
             resource_documentation=None,
         )

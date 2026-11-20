@@ -261,6 +261,7 @@ uv run main.py --transport streamable-http --tools gmail drive calendar
 | `WORKSPACE_MCP_TOOLS` | | Comma-separated services, e.g. `gmail,drive,calendar`; empty means all services |
 | `WORKSPACE_MCP_TOOL_TIER` | | `core`, `extended`, or `complete`; empty means all tools |
 | `WORKSPACE_MCP_READ_ONLY` | | `true`, `1`, or `yes` to request read-only scopes and filter write tools |
+| `WORKSPACE_MCP_SELECTABLE_ACCESS` | `0` | Set to `1` in external OAuth mode to advertise read-only alternatives and accept scope subsets. Tool calls use the scopes Google granted to the bearer token. |
 | `WORKSPACE_MCP_PERMISSIONS` | | Space-separated `service:level` entries, e.g. `gmail:send-only drive:file`; mutually exclusive with tools and read-only |
 | **🔑 OAuth 2.1 & Multi-User** | | |
 | `MCP_ENABLE_OAUTH21` | | `true` to enable OAuth 2.1 multi-user support. Required for remote or shared HTTP endpoints (`--transport streamable-http`); optional for local-only legacy HTTP, which binds to `127.0.0.1` by default. |

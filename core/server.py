@@ -26,7 +26,12 @@ from auth.oauth_responses import (
     create_success_response,
     create_server_error_response,
 )
-from auth.scopes import PROTOCOL_AUTH_SCOPES, SCOPES, get_current_scopes  # noqa
+from auth.scopes import (  # noqa
+    PROTOCOL_AUTH_SCOPES,
+    SCOPES,
+    get_current_scopes,
+    get_selectable_external_oauth_scopes,
+)
 from core.config import (
     USER_GOOGLE_EMAIL,
     get_transport_mode,
@@ -203,7 +208,8 @@ well_known_cache_control_middleware = Middleware(WellKnownCacheControlMiddleware
 
 def _compute_scope_fingerprint() -> str:
     """Compute a short hash of the current scope configuration for cache-busting."""
-    scopes_str = ",".join(sorted(get_current_scopes()))
+    scopes = getattr(_auth_provider, "selectable_scopes", None) or get_current_scopes()
+    scopes_str = ",".join(sorted(scopes))
     return hashlib.sha256(scopes_str.encode()).hexdigest()[:12]
 
 
@@ -616,12 +622,25 @@ def configure_server_for_http():
                 # External OAuth mode: use custom provider that handles ya29.* access tokens
                 from auth.external_oauth_provider import ExternalOAuthProvider
 
+                selectable_access = (
+                    os.getenv("WORKSPACE_MCP_SELECTABLE_ACCESS", "") == "1"
+                )
+                selectable_scopes = (
+                    get_selectable_external_oauth_scopes(provider_valid_scopes)
+                    if selectable_access
+                    else None
+                )
                 provider = ExternalOAuthProvider(
                     client_id=config.client_id,
                     client_secret=config.client_secret,
                     base_url=config.get_oauth_base_url(),
                     redirect_path=config.redirect_path,
-                    required_scopes=provider_valid_scopes,
+                    required_scopes=(
+                        provider_required_scopes
+                        if selectable_access
+                        else provider_valid_scopes
+                    ),
+                    selectable_scopes=selectable_scopes,
                     resource_server_url=config.get_oauth_base_url(),
                     jwt_signing_key=jwt_signing_key,
                 )

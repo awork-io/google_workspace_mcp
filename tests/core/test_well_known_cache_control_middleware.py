@@ -1,6 +1,8 @@
+import hashlib
 import importlib
 from types import SimpleNamespace
 
+import pytest
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.responses import Response
@@ -235,7 +237,10 @@ def test_configured_server_applies_no_cache_to_served_oauth_discovery_routes(
     assert wrong_path.status_code == 404
 
 
-def test_external_oauth_metadata_advertises_canonical_google_issuer(monkeypatch):
+@pytest.mark.parametrize("selectable_access", [False, True])
+def test_external_oauth_metadata_advertises_canonical_google_issuer(
+    monkeypatch, selectable_access
+):
     """authorization_servers must match Google's OpenID issuer exactly.
 
     Google's discovery document reports the issuer without a trailing slash.
@@ -250,12 +255,23 @@ def test_external_oauth_metadata_advertises_canonical_google_issuer(monkeypatch)
     monkeypatch.setenv("WORKSPACE_EXTERNAL_URL", "https://workspace.example.com")
     monkeypatch.setenv("EXTERNAL_OAUTH21_PROVIDER", "true")
     monkeypatch.setenv("WORKSPACE_MCP_STATELESS_MODE", "true")
+    monkeypatch.setenv("WORKSPACE_MCP_SELECTABLE_ACCESS", str(int(selectable_access)))
 
     import core.server as core_server
     from auth.oauth_config import reload_oauth_config
+    from auth.scopes import (
+        CALENDAR_READONLY_SCOPE,
+        CALENDAR_SCOPE,
+        PROTOCOL_AUTH_SCOPES,
+    )
 
     reload_oauth_config()
     core_server = importlib.reload(core_server)
+    monkeypatch.setattr(
+        core_server,
+        "get_current_scopes",
+        lambda: [*PROTOCOL_AUTH_SCOPES, CALENDAR_SCOPE],
+    )
     core_server.set_transport_mode("streamable-http")
     core_server.configure_server_for_http()
 
@@ -268,6 +284,12 @@ def test_external_oauth_metadata_advertises_canonical_google_issuer(monkeypatch)
     assert protected_resource.json()["authorization_servers"] == [
         "https://accounts.google.com"
     ]
+    expected_scopes = {*PROTOCOL_AUTH_SCOPES, CALENDAR_SCOPE}
+    if selectable_access:
+        expected_scopes.add(CALENDAR_READONLY_SCOPE)
+    assert set(protected_resource.json()["scopes_supported"]) == expected_scopes
+    fingerprint = hashlib.sha256(",".join(sorted(expected_scopes)).encode()).hexdigest()
+    assert protected_resource.headers["etag"] == f'"{fingerprint[:12]}"'
 
     wrong_path = client.get("/.well-known/oauth-protected-resource")
     assert wrong_path.status_code == 404

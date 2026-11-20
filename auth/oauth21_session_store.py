@@ -1128,6 +1128,7 @@ async def ensure_session_from_access_token(
     if not email and getattr(access_token, "claims", None):
         email = access_token.claims.get("email")
 
+    external_oauth = is_external_oauth21_provider()
     credentials = await _build_credentials_from_provider()
     store_expiry: Optional[datetime] = None
 
@@ -1135,7 +1136,9 @@ async def ensure_session_from_access_token(
         client_id, client_secret = _resolve_client_credentials()
         expiry = None
         expires_at = getattr(access_token, "expires_at", None)
-        if expires_at:
+        # The MCP client refreshes external tokens. Giving Google Credentials an
+        # expiry here would make it try to refresh a valid, near-expiry token.
+        if expires_at and not external_oauth:
             try:
                 expiry = datetime.fromtimestamp(expires_at, tz=timezone.utc)
             except Exception:  # pragma: no cover - defensive
@@ -1156,7 +1159,7 @@ async def ensure_session_from_access_token(
         store_expiry = credentials.expiry
 
     # Skip session storage for external OAuth 2.1 to prevent memory leak from ephemeral tokens
-    if email and not is_external_oauth21_provider():
+    if email and not external_oauth:
         try:
             store = get_oauth21_session_store()
             store.store_session(
