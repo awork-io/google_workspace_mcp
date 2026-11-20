@@ -283,3 +283,46 @@ class TestGranularPermissionsScopes:
         assert GMAIL_MODIFY_SCOPE not in scopes
         assert DRIVE_SCOPE not in scopes
         assert DRIVE_READONLY_SCOPE not in scopes
+
+
+def test_selectable_external_scopes_include_readonly_alternatives():
+    from auth.scopes import (
+        CALENDAR_SCOPE,
+        CALENDAR_READONLY_SCOPE,
+        DOCS_READONLY_SCOPE,
+        DOCS_WRITE_SCOPE,
+        DRIVE_READONLY_SCOPE,
+        DRIVE_SCOPE,
+        GMAIL_MODIFY_SCOPE,
+        GMAIL_READONLY_SCOPE,
+        GMAIL_SEND_SCOPE,
+        SHEETS_READONLY_SCOPE,
+        SHEETS_WRITE_SCOPE,
+        SLIDES_READONLY_SCOPE,
+        SLIDES_SCOPE,
+        get_selectable_external_oauth_scopes,
+    )
+
+    configured_scopes = [
+        CALENDAR_SCOPE,
+        DOCS_WRITE_SCOPE,
+        DRIVE_SCOPE,
+        GMAIL_MODIFY_SCOPE,
+        SHEETS_WRITE_SCOPE,
+        SLIDES_SCOPE,
+    ]
+    assert set(get_selectable_external_oauth_scopes(configured_scopes)) == {
+        *configured_scopes,
+        CALENDAR_READONLY_SCOPE,
+        DOCS_READONLY_SCOPE,
+        DRIVE_READONLY_SCOPE,
+        GMAIL_READONLY_SCOPE,
+        SHEETS_READONLY_SCOPE,
+        SLIDES_READONLY_SCOPE,
+    }
+    assert get_selectable_external_oauth_scopes([GMAIL_SEND_SCOPE]) == [
+        GMAIL_SEND_SCOPE
+    ]
+    assert DRIVE_READONLY_SCOPE not in get_selectable_external_oauth_scopes(
+        [DRIVE_FILE_SCOPE]
+    )

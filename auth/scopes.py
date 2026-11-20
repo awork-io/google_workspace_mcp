@@ -288,6 +288,15 @@ def get_all_read_only_scopes() -> list[str]:
     return list(all_scopes)
 
 
+def get_selectable_external_oauth_scopes(configured_scopes: list[str]) -> list[str]:
+    """Keep the configured scopes and advertise their read-only alternatives."""
+    scopes = set(configured_scopes)
+    read_scopes = set().union(*TOOL_READONLY_SCOPES_MAP.values())
+    for scope in configured_scopes:
+        scopes.update(SCOPE_HIERARCHY.get(scope, set()) & read_scopes)
+    return sorted(scopes)
+
+
 def get_current_scopes():
     """
     Returns scopes for currently enabled tools.
